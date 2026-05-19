@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "mediCare",
+    "slug": "mediCare-clean",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/ic_launcher_round.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/ic_launcher_round.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.medicare.clean"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/ic_launcher_round.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.medicare.clean"
+    },
+    "web": {
+      "favicon": "./assets/ic_launcher_round.png"
+    }
+  }
+}
