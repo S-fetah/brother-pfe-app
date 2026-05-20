@@ -7,7 +7,15 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "clean:android": "cd android && gradlew.bat clean && cd .."
+    "bundleRelease:android": "cd android && gradlew.bat bundleRelease && cd ..",
+    "assembleRelease:android": "cd android && gradlew.bat assembleRelease && cd ..",
+    "assembleDebug:android": "cd android && gradlew.bat assembleDebug && cd ..",
+    "releaseAndroid": "npm run bundleRelease:android && npm run assembleRelease:android",
+    "installAndroidRelease": "npm run releaseAndroid && adb install -r android\\app\\build\\outputs\\apk\\release\\app-release.apk",
+    "c:ios": "cd ios && xcodebuild clean && cd ..",
+    "clean:ios": "echo 'ðŸ”¥ Cleaning iOS build...' && rm -rf ios/build ios/Pods || sudo rm -rf ios/build ios/Pods && echo 'ðŸ”¥ Cleaning DerivedData...' && rm -rf ~/Library/Developer/Xcode/DerivedData || sudo rm -rf ~/Library/Developer/Xcode/DerivedData && echo 'âœ… Done cleaning iOS'",
+    "c:android": "cd android && gradlew.bat clean && cd ..",
+    "android:release": "react-native run-android --variant=release"
   },
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.15.10",
