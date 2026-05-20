@@ -1,125 +1,182 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Mail, Lock, Activity, Upload, ChevronDown, ArrowRight, Eye, EyeOff } from 'lucide-react-native';
-import { authApi } from '../services/api';
-import { ActivityIndicator, Image as RNImage } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Modal,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  User,
+  Mail,
+  Lock,
+  Activity,
+  Upload,
+  ChevronDown,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  CheckCircle,
+  AlertCircle,
+} from "lucide-react-native";
+import { authApi } from "../services/api";
+import { ActivityIndicator, Image as RNImage } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { saveToken, saveUserId, saveUserProfile } from "../utils/authStorage";
 
 export default function RegisterScreen({ navigation }) {
-  const [role, setRole] = useState('patient');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [role, setRole] = useState("patient");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [specialty, setSpecialty] = useState('');
+  const [specialty, setSpecialty] = useState("");
   const [showSpecialtyPicker, setShowSpecialtyPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [certificate, setCertificate] = useState(null);
+  const [certificateUrl, setCertificateUrl] = useState("");
+  const [uploadingCert, setUploadingCert] = useState(false);
+  const [certUploadError, setCertUploadError] = useState("");
   const [showCertificatePreview, setShowCertificatePreview] = useState(false);
   const [errors, setErrors] = useState({});
 
   const SPECIALTIES = [
-    'Cardiology',
-    'Dermatology',
-    'Neurology',
-    'Pediatrics',
-    'Psychiatry',
-    'Orthopedics',
-    'Ophthalmology',
-    'Otolaryngology',
-    'Gastroenterology',
-    'Pulmonology',
-    'Nephrology',
-    'Rheumatology',
-    'Oncology',
-    'Radiology',
-    'Pathology',
-    'Anesthesiology',
-    'General Surgery',
-    'Urology',
-    'Gynecology',
-    'Family Medicine',
+    "Cardiology",
+    "Dermatology",
+    "Neurology",
+    "Pediatrics",
+    "Psychiatry",
+    "Orthopedics",
+    "Ophthalmology",
+    "Otolaryngology",
+    "Gastroenterology",
+    "Pulmonology",
+    "Nephrology",
+    "Rheumatology",
+    "Oncology",
+    "Radiology",
+    "Pathology",
+    "Anesthesiology",
+    "General Surgery",
+    "Urology",
+    "Gynecology",
+    "Family Medicine",
   ];
 
   const validateEmail = (value) => /\S+@\S+\.\S+/.test(value);
   const validatePassword = (value) => value.length >= 6;
 
   const getFileTypeFromUri = (uri) => {
-    const extension = uri.split('.').pop()?.toLowerCase();
-    if (extension === 'pdf') return 'application/pdf';
-    if (extension === 'png') return 'image/png';
-    if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
-    return '';
+    const extension = uri.split(".").pop()?.toLowerCase();
+    if (extension === "pdf") return "application/pdf";
+    if (extension === "png") return "image/png";
+    if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+    return "";
   };
 
   const isValidCertificateType = (uri) => {
     const type = getFileTypeFromUri(uri);
-    return ['application/pdf', 'image/png', 'image/jpeg'].includes(type);
+    return ["application/pdf", "image/png", "image/jpeg"].includes(type);
   };
 
   const canSubmit = () => {
-    if (!fullName.trim() || !validateEmail(email) || !validatePassword(password)) {
+    if (
+      !fullName.trim() ||
+      !validateEmail(email) ||
+      !validatePassword(password)
+    ) {
       return false;
     }
-    if (role === 'doctor') {
-      return specialty.trim().length > 0 && certificate && isValidCertificateType(certificate.uri);
+    if (role === "doctor") {
+      return specialty.trim().length > 0 && certificateUrl.length > 0;
     }
     return true;
   };
 
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 1,
-    });
+  const pickAndUploadCertificate = async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+      });
 
-    if (!result.canceled) {
+      if (result.canceled) return;
+
       const picked = result.assets[0];
       if (!isValidCertificateType(picked.uri)) {
-        return alert('Please upload a valid certificate file: JPG, PNG, or PDF');
+        return alert(
+          "Please upload a valid certificate file: JPG, PNG, or PDF",
+        );
       }
+
       setCertificate(picked);
+      setCertUploadError("");
+      setUploadingCert(true);
+
+      const uploadData = new FormData();
+      const fileType = getFileTypeFromUri(picked.uri);
+      const fileName = picked.uri.split("/").pop() || "certificate.pdf";
+
+      uploadData.append("file", {
+        uri: picked.uri,
+        name: fileName,
+        type: fileType,
+      });
+
+      const uploadResponse =
+        await authApi.uploadDoctorCertificate(uploadData);
+
+      console.log("Certificate upload response:", JSON.stringify(uploadResponse, null, 2));
+
+      const resData = uploadResponse.data;
+      const url =
+        resData?.data?.url ||
+        resData?.data?.certificateUrl ||
+        resData?.data?.fileUrl ||
+        resData?.url ||
+        resData?.certificateUrl ||
+        resData?.fileUrl ||
+        "";
+
+      console.log("Extracted certificate URL:", url);
+
+      if (!url) {
+        throw new Error("No URL returned from server");
+      }
+
+      setCertificateUrl(url);
       setShowCertificatePreview(true);
+    } catch (err) {
+      setCertificate(null);
+      setCertificateUrl("");
+      setCertUploadError(err.data?.message || err.message || "Failed to upload certificate");
+    } finally {
+      setUploadingCert(false);
     }
-  };
-
-  const uploadDoctorCertificate = async () => {
-    const uploadData = new FormData();
-    const fileType = getFileTypeFromUri(certificate.uri);
-    const fileName = certificate.uri.split('/').pop() || 'certificate.pdf';
-
-    uploadData.append('file', {
-      uri: certificate.uri,
-      name: fileName,
-      type: fileType,
-    });
-
-    const uploadResponse = await authApi.uploadDoctorCertificate(uploadData);
-    return (
-      uploadResponse.data?.url ||
-      uploadResponse.data?.certificateUrl ||
-      uploadResponse.data?.fileUrl ||
-      uploadResponse.data?.data?.url ||
-      uploadResponse.data?.data?.certificateUrl ||
-      uploadResponse.data?.data?.fileUrl ||
-      ''
-    );
   };
 
   const handleRegister = async () => {
     const validationErrors = {};
 
-    if (!fullName.trim()) validationErrors.fullName = 'Full name is required.';
-    if (!email.trim()) validationErrors.email = 'Email is required.';
-    else if (!validateEmail(email)) validationErrors.email = 'Enter a valid email address.';
-    if (!password) validationErrors.password = 'Password is required.';
-    else if (!validatePassword(password)) validationErrors.password = 'Password must be at least 6 characters.';
-    if (role === 'doctor') {
-      if (!specialty.trim()) validationErrors.specialty = 'Specialty is required for doctors.';
-      if (!certificate) validationErrors.certificate = 'Certificate upload is required for doctors.';
-      else if (!isValidCertificateType(certificate.uri)) validationErrors.certificate = 'Certificate must be JPG, PNG, or PDF.';
+    if (!fullName.trim()) validationErrors.fullName = "Full name is required.";
+    if (!email.trim()) validationErrors.email = "Email is required.";
+    else if (!validateEmail(email))
+      validationErrors.email = "Enter a valid email address.";
+    if (!password) validationErrors.password = "Password is required.";
+    else if (!validatePassword(password))
+      validationErrors.password = "Password must be at least 6 characters.";
+    if (role === "doctor") {
+      if (!specialty.trim())
+        validationErrors.specialty = "Specialty is required for doctors.";
+      if (!certificateUrl)
+        validationErrors.certificate =
+          "Certificate upload failed. Please try again.";
     }
 
     if (Object.keys(validationErrors).length > 0) {
@@ -131,29 +188,63 @@ export default function RegisterScreen({ navigation }) {
     setLoading(true);
 
     try {
-      let certificateUrl = '';
-      if (role === 'doctor') {
-        certificateUrl = await uploadDoctorCertificate();
-        if (!certificateUrl) {
-          throw new Error('Failed to upload certificate. Please try again.');
+      const body = {
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        userType: role === "doctor" ? "doctor" : "user",
+      };
+
+      if (role === "doctor") {
+        body.speciality = specialty.trim();
+        body.certificateUrl = certificateUrl;
+      }
+
+      console.log("Signup body:", JSON.stringify(body, null, 2));
+
+      const { API_BASE_URL } = require("../config/api");
+
+      const signupRes = await fetch(`${API_BASE_URL}/auth/signup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const signupData = await signupRes.json();
+      console.log("Signup response status:", signupRes.status);
+      console.log("Signup response body:", JSON.stringify(signupData, null, 2));
+
+      if (!signupRes.ok) {
+        throw new Error(signupData.message || signupData.error || "Registration failed");
+      }
+
+      const response = { data: signupData };
+
+      if (role === "patient") {
+        const accessToken = response.data?.accessToken || response.data?.token;
+        const userId = response.data?.userId || response.data?.uid;
+        const user = response.data?.user || response.data || {};
+
+        if (accessToken) {
+          await saveToken(accessToken);
         }
+        if (userId) {
+          await saveUserId(userId);
+        }
+        await saveUserProfile({ ...user, fullName: fullName.trim(), email: email.trim().toLowerCase(), userType: "user" });
+
+        navigation.navigate("Login", {
+          autofillEmail: email.trim().toLowerCase(),
+          autofillPassword: password,
+        });
+      } else {
+        navigation.navigate("DoctorPending");
       }
-
-      const formData = new FormData();
-      formData.append('fullName', fullName.trim());
-      formData.append('email', email.trim());
-      formData.append('password', password);
-      formData.append('userType', role);
-
-      if (role === 'doctor') {
-        formData.append('speciality', specialty.trim());
-        formData.append('certificateUrl', certificateUrl);
-      }
-
-      const response = await authApi.register(formData);
-      navigation.navigate('Main', { user: response.data.user });
     } catch (err) {
-      const errorMsg = err.response?.data?.message || err.message || 'Registration failed';
+      const errorMsg = err.message || "Registration failed";
       alert(`Error: ${errorMsg}`);
     } finally {
       setLoading(false);
@@ -162,8 +253,14 @@ export default function RegisterScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
           <View style={styles.logoContainer}>
             <View style={styles.logoIcon}>
               <Activity color="#1552C1" size={32} />
@@ -173,21 +270,42 @@ export default function RegisterScreen({ navigation }) {
 
           <View style={styles.card}>
             <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Start your digital healthcare journey today.</Text>
+            <Text style={styles.subtitle}>
+              Start your digital healthcare journey today.
+            </Text>
 
-            {/* Role Switcher */}
             <View style={styles.roleSwitcher}>
               <TouchableOpacity
-                style={[styles.roleButton, role === 'patient' && styles.roleButtonActive]}
-                onPress={() => setRole('patient')}
+                style={[
+                  styles.roleButton,
+                  role === "patient" && styles.roleButtonActive,
+                ]}
+                onPress={() => setRole("patient")}
               >
-                <Text style={[styles.roleButtonText, role === 'patient' && styles.roleButtonTextActive]}>Patient</Text>
+                <Text
+                  style={[
+                    styles.roleButtonText,
+                    role === "patient" && styles.roleButtonTextActive,
+                  ]}
+                >
+                  Patient
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.roleButton, role === 'doctor' && styles.roleButtonActive]}
-                onPress={() => setRole('doctor')}
+                style={[
+                  styles.roleButton,
+                  role === "doctor" && styles.roleButtonActive,
+                ]}
+                onPress={() => setRole("doctor")}
               >
-                <Text style={[styles.roleButtonText, role === 'doctor' && styles.roleButtonTextActive]}>Doctor</Text>
+                <Text
+                  style={[
+                    styles.roleButtonText,
+                    role === "doctor" && styles.roleButtonTextActive,
+                  ]}
+                >
+                  Doctor
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -198,12 +316,14 @@ export default function RegisterScreen({ navigation }) {
                 <TextInput
                   style={styles.input}
                   placeholder="John Doe"
-                  placeholderTextColor={'gray'}
+                  placeholderTextColor={"gray"}
                   value={fullName}
                   onChangeText={setFullName}
                 />
               </View>
-              {errors.fullName && <Text style={styles.errorText}>{errors.fullName}</Text>}
+              {errors.fullName && (
+                <Text style={styles.errorText}>{errors.fullName}</Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -213,14 +333,16 @@ export default function RegisterScreen({ navigation }) {
                 <TextInput
                   style={styles.input}
                   placeholder="john@example.com"
-                  placeholderTextColor={'gray'}
+                  placeholderTextColor={"gray"}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
               </View>
-              {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
+              {errors.email && (
+                <Text style={styles.errorText}>{errors.email}</Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -230,7 +352,7 @@ export default function RegisterScreen({ navigation }) {
                 <TextInput
                   style={styles.input}
                   placeholder="••••••••"
-                  placeholderTextColor={'gray'}
+                  placeholderTextColor={"gray"}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -247,15 +369,18 @@ export default function RegisterScreen({ navigation }) {
                   )}
                 </TouchableOpacity>
               </View>
-              {errors.password && <Text style={styles.errorText}>{errors.password}</Text>}
+              {errors.password && (
+                <Text style={styles.errorText}>{errors.password}</Text>
+              )}
             </View>
 
-            {/* Doctor Specific Fields */}
-            {role === 'doctor' && (
+            {role === "doctor" && (
               <>
                 <View style={styles.divider} />
                 <View style={styles.inputGroup}>
-                  <Text style={[styles.label, { color: '#64748B' }]}>Specialty & Verification (Doctor Only)</Text>
+                  <Text style={[styles.label, { color: "#64748B" }]}>
+                    Specialty & Verification (Doctor Only)
+                  </Text>
                   <TouchableOpacity
                     style={styles.inputWrapper}
                     onPress={() => setShowSpecialtyPicker(true)}
@@ -264,14 +389,16 @@ export default function RegisterScreen({ navigation }) {
                     <Text
                       style={[
                         styles.input,
-                        { color: specialty ? '#1E293B' : '#9CA3AF' }
+                        { color: specialty ? "#1E293B" : "#9CA3AF" },
                       ]}
                     >
-                      {specialty || 'Select Specialty'}
+                      {specialty || "Select Specialty"}
                     </Text>
                     <ChevronDown color="#94A3B8" size={20} />
                   </TouchableOpacity>
-                  {errors.specialty && <Text style={styles.errorText}>{errors.specialty}</Text>}
+                  {errors.specialty && (
+                    <Text style={styles.errorText}>{errors.specialty}</Text>
+                  )}
                 </View>
 
                 <Modal
@@ -280,16 +407,39 @@ export default function RegisterScreen({ navigation }) {
                   animationType="slide"
                   onRequestClose={() => setShowSpecialtyPicker(false)}
                 >
-                  <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }}>
-                    <View style={{
-                      backgroundColor: 'white',
-                      borderTopLeftRadius: 24,
-                      borderTopRightRadius: 24,
-                      paddingTop: 16,
-                      maxHeight: '80%',
-                    }}>
-                      <View style={{ paddingHorizontal: 24, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' }}>
-                        <Text style={{ fontSize: 18, fontWeight: '700', color: '#1E293B' }}>Select Specialty</Text>
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: "rgba(0, 0, 0, 0.5)",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <View
+                      style={{
+                        backgroundColor: "white",
+                        borderTopLeftRadius: 24,
+                        borderTopRightRadius: 24,
+                        paddingTop: 16,
+                        maxHeight: "80%",
+                      }}
+                    >
+                      <View
+                        style={{
+                          paddingHorizontal: 24,
+                          paddingBottom: 16,
+                          borderBottomWidth: 1,
+                          borderBottomColor: "#E2E8F0",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 18,
+                            fontWeight: "700",
+                            color: "#1E293B",
+                          }}
+                        >
+                          Select Specialty
+                        </Text>
                       </View>
                       <ScrollView style={{ paddingHorizontal: 24 }}>
                         {SPECIALTIES.map((spec) => (
@@ -302,51 +452,136 @@ export default function RegisterScreen({ navigation }) {
                             style={{
                               paddingVertical: 16,
                               borderBottomWidth: 1,
-                              borderBottomColor: '#F1F5F9',
+                              borderBottomColor: "#F1F5F9",
                             }}
                           >
-                            <Text style={{
-                              fontSize: 16,
-                              color: specialty === spec ? '#1552C1' : '#1E293B',
-                              fontWeight: specialty === spec ? '600' : '400',
-                            }}>
+                            <Text
+                              style={{
+                                fontSize: 16,
+                                color:
+                                  specialty === spec ? "#1552C1" : "#1E293B",
+                                fontWeight: specialty === spec ? "600" : "400",
+                              }}
+                            >
                               {spec}
                             </Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
-                      <View style={{ paddingHorizontal: 24, paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#E2E8F0' }}>
+                      <View
+                        style={{
+                          paddingHorizontal: 24,
+                          paddingVertical: 16,
+                          borderTopWidth: 1,
+                          borderTopColor: "#E2E8F0",
+                        }}
+                      >
                         <TouchableOpacity
                           onPress={() => setShowSpecialtyPicker(false)}
                           style={{
-                            backgroundColor: '#F1F5F9',
+                            backgroundColor: "#F1F5F9",
                             paddingVertical: 12,
                             borderRadius: 12,
-                            alignItems: 'center',
+                            alignItems: "center",
                           }}
                         >
-                          <Text style={{ color: '#1E293B', fontWeight: '600', fontSize: 16 }}>Cancel</Text>
+                          <Text
+                            style={{
+                              color: "#1E293B",
+                              fontWeight: "600",
+                              fontSize: 16,
+                            }}
+                          >
+                            Cancel
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </View>
                   </View>
                 </Modal>
 
-                <TouchableOpacity style={styles.uploadCard} onPress={pickImage} activeOpacity={0.75}>
-                  {certificate ? (
+                <TouchableOpacity
+                  style={[
+                    styles.uploadCard,
+                    uploadingCert && styles.uploadCardDisabled,
+                  ]}
+                  onPress={uploadingCert ? null : pickAndUploadCertificate}
+                  activeOpacity={0.75}
+                  disabled={uploadingCert}
+                >
+                  {uploadingCert ? (
                     <>
-                      <RNImage source={{ uri: certificate.uri }} style={{ width: '100%', height: 140, borderRadius: 12 }} />
-                      <Text style={[styles.uploadTitle, { marginTop: 12 }]}>Tap to replace certificate</Text>
+                      <ActivityIndicator size="large" color="#1552C1" />
+                      <Text style={[styles.uploadTitle, { marginTop: 12 }]}>
+                        Uploading certificate...
+                      </Text>
+                    </>
+                  ) : certUploadError ? (
+                    <>
+                      <AlertCircle color="#DC2626" size={24} />
+                      <Text
+                        style={[
+                          styles.uploadTitle,
+                          { marginTop: 12, color: "#DC2626" },
+                        ]}
+                      >
+                        Upload failed
+                      </Text>
+                      <Text style={styles.uploadDesc}>{certUploadError}</Text>
+                      <Text
+                        style={[
+                          styles.uploadDesc,
+                          { marginTop: 8, color: "#1552C1" },
+                        ]}
+                      >
+                        Tap to retry
+                      </Text>
+                    </>
+                  ) : certificateUrl ? (
+                    <>
+                      <CheckCircle color="#166534" size={24} />
+                      <Text
+                        style={[
+                          styles.uploadTitle,
+                          { marginTop: 12, color: "#166534" },
+                        ]}
+                      >
+                        Certificate uploaded
+                      </Text>
+                      <Text
+                        style={[
+                          styles.uploadDesc,
+                          { marginTop: 8, color: "#1552C1" },
+                        ]}
+                      >
+                        Tap to replace
+                      </Text>
+                    </>
+                  ) : certificate ? (
+                    <>
+                      <RNImage
+                        source={{ uri: certificate.uri }}
+                        style={{ width: "100%", height: 140, borderRadius: 12 }}
+                      />
+                      <Text style={[styles.uploadTitle, { marginTop: 12 }]}>
+                        Tap to replace certificate
+                      </Text>
                     </>
                   ) : (
                     <>
                       <Upload color="#94A3B8" size={24} />
-                      <Text style={styles.uploadTitle}>Upload Medical License / Certificate</Text>
-                      <Text style={styles.uploadDesc}>PNG or JPG (Max 5MB)</Text>
+                      <Text style={styles.uploadTitle}>
+                        Upload Medical License / Certificate
+                      </Text>
+                      <Text style={styles.uploadDesc}>
+                        PNG or JPG (Max 5MB)
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
-                {errors.certificate && <Text style={styles.errorText}>{errors.certificate}</Text>}
+                {errors.certificate && (
+                  <Text style={styles.errorText}>{errors.certificate}</Text>
+                )}
 
                 <Modal
                   visible={showCertificatePreview}
@@ -356,8 +591,16 @@ export default function RegisterScreen({ navigation }) {
                 >
                   <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
-                      <Text style={styles.modalTitle}>Certificate Preview</Text>
-                      <RNImage source={{ uri: certificate?.uri }} style={styles.modalImage} />
+                      <View style={styles.modalSuccessHeader}>
+                        <CheckCircle color="#166534" size={28} />
+                        <Text style={styles.modalTitle}>
+                          Certificate Uploaded
+                        </Text>
+                      </View>
+                      <RNImage
+                        source={{ uri: certificate?.uri }}
+                        style={styles.modalImage}
+                      />
                       <TouchableOpacity
                         style={styles.modalButton}
                         onPress={() => setShowCertificatePreview(false)}
@@ -370,7 +613,14 @@ export default function RegisterScreen({ navigation }) {
               </>
             )}
 
-            <TouchableOpacity style={[styles.button, (!canSubmit() || loading) && styles.buttonDisabled]} onPress={handleRegister} disabled={!canSubmit() || loading}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                (!canSubmit() || loading) && styles.buttonDisabled,
+              ]}
+              onPress={handleRegister}
+              disabled={!canSubmit() || loading}
+            >
               {loading ? (
                 <ActivityIndicator color="white" />
               ) : (
@@ -383,7 +633,7 @@ export default function RegisterScreen({ navigation }) {
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <TouchableOpacity onPress={() => navigation.navigate("Login")}>
                 <Text style={styles.linkText}>Log in</Text>
               </TouchableOpacity>
             </View>
@@ -397,38 +647,38 @@ export default function RegisterScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: "#F8FAFC",
   },
   scrollContent: {
     padding: 24,
     paddingBottom: 40,
   },
   logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 32,
     marginTop: 20,
   },
   logoIcon: {
     width: 48,
     height: 48,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: "#EFF6FF",
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
   logoText: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontWeight: "bold",
+    color: "#1E293B",
   },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 24,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -436,18 +686,18 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#1E293B',
+    fontWeight: "700",
+    color: "#1E293B",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#64748B',
+    color: "#64748B",
     marginBottom: 32,
   },
   roleSwitcher: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
     borderRadius: 12,
     padding: 4,
     marginBottom: 32,
@@ -455,12 +705,12 @@ const styles = StyleSheet.create({
   roleButton: {
     flex: 1,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
     borderRadius: 10,
   },
   roleButtonActive: {
-    backgroundColor: 'white',
-    shadowColor: '#000',
+    backgroundColor: "white",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
@@ -468,25 +718,25 @@ const styles = StyleSheet.create({
   },
   roleButtonText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
+    fontWeight: "600",
+    color: "#64748B",
   },
   roleButtonTextActive: {
-    color: '#1552C1',
+    color: "#1552C1",
   },
   inputGroup: {
     marginBottom: 20,
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#475569',
+    fontWeight: "600",
+    color: "#475569",
     marginBottom: 8,
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
     borderRadius: 12,
     paddingHorizontal: 16,
     height: 52,
@@ -497,114 +747,122 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
+    color: "#000",
   },
   divider: {
     height: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: "#F1F5F9",
     marginVertical: 12,
-    borderStyle: 'dashed',
+    borderStyle: "dashed",
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: "#E2E8F0",
   },
   uploadCard: {
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
+    borderColor: "#E2E8F0",
+    borderStyle: "dashed",
     borderRadius: 16,
     padding: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     minHeight: 160,
     marginBottom: 32,
   },
+  uploadCardDisabled: {
+    opacity: 0.7,
+  },
   uploadTitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#475569',
+    fontWeight: "600",
+    color: "#475569",
     marginTop: 12,
-    textAlign: 'center',
+    textAlign: "center",
   },
   uploadDesc: {
     fontSize: 12,
-    color: '#94A3B8',
+    color: "#94A3B8",
     marginTop: 4,
-    textAlign: 'center',
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 24,
   },
   modalContent: {
-    width: '100%',
-    backgroundColor: 'white',
+    width: "100%",
+    backgroundColor: "white",
     borderRadius: 24,
     padding: 24,
-    alignItems: 'center',
+    alignItems: "center",
+  },
+  modalSuccessHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#1E293B',
-    marginBottom: 16,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginLeft: 8,
   },
   modalImage: {
-    width: '100%',
+    width: "100%",
     height: 240,
     borderRadius: 16,
     marginBottom: 24,
   },
   modalButton: {
-    backgroundColor: '#1552C1',
+    backgroundColor: "#1552C1",
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 16,
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
   },
   modalButtonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   button: {
-    backgroundColor: '#1552C1',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#1552C1",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     height: 56,
     borderRadius: 16,
     marginTop: 12,
   },
   buttonDisabled: {
-    backgroundColor: '#94A3B8',
+    backgroundColor: "#94A3B8",
   },
   buttonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
     marginRight: 8,
   },
   errorText: {
-    color: '#DC2626',
+    color: "#DC2626",
     marginTop: 8,
     fontSize: 12,
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     marginTop: 24,
   },
   footerText: {
-    color: '#64748B',
+    color: "#64748B",
     fontSize: 14,
   },
   linkText: {
-    color: '#1552C1',
+    color: "#1552C1",
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
   },
 });

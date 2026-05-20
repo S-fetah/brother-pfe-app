@@ -1,14 +1,66 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { User, Shield, CreditCard, Bell, Settings, LogOut, ChevronRight, Activity, Heart, Thermometer } from 'lucide-react-native';
+import { CreditCard, Bell, Settings, LogOut, ChevronRight, Mail, Calendar, UserCheck } from 'lucide-react-native';
+import { clearSession, getUserProfile, saveUserProfile } from '../utils/authStorage';
+import { authApi } from '../services/api';
+
+const DEFAULT_PROFILE_IMAGE = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200';
+
+const formatDate = (value) => {
+  if (!value) return 'N/A';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  } catch {
+    return 'N/A';
+  }
+};
 
 export default function ProfileScreen({ navigation, route }) {
-  const user = route.params?.user;
-  
-  const userData = {
-    name: user?.fullName || 'Eleanor Shellstrop',
-    image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200',
+  const [user, setUser] = useState(route.params?.user || null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('tabPress', () => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const fetchUser = useCallback(async () => {
+    try {
+      setError('');
+      const response = await authApi.getUser();
+      const userData = response.data?.data || response.data || {};
+      setUser(userData);
+      await saveUserProfile(userData);
+    } catch (err) {
+      setError(err.message || 'Failed to load profile');
+      const stored = await getUserProfile();
+      if (stored) setUser(stored);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUser();
+  }, [fetchUser]);
+
+  const handleLogout = async () => {
+    await clearSession();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
   };
 
   const menuItems = [
@@ -17,18 +69,62 @@ export default function ProfileScreen({ navigation, route }) {
     { label: 'Settings', icon: Settings, color: '#64748B', screen: 'Settings' },
   ];
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color="#1552C1" size="large" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const fullName = user?.fullName || 'User';
+  const email = user?.email || '';
+  const status = user?.status || 'active';
+  const memberSince = user?.createdAt || '';
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.profileCard}>
-          <Image source={{ uri: userData.image }} style={styles.profileImage} />
-          <Text style={styles.userName}>{userData.name}</Text>
+          <Image source={{ uri: DEFAULT_PROFILE_IMAGE }} style={styles.profileImage} />
+          <Text style={styles.userName}>{fullName}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: status === 'active' ? '#D1FAE5' : '#FEF3C7' }]}>
+            <UserCheck color={status === 'active' ? '#059669' : '#D97706'} size={14} />
+            <Text style={[styles.statusText, { color: status === 'active' ? '#059669' : '#D97706' }]}>
+              {status}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.infoCard}>
+          <View style={styles.infoRow}>
+            <View style={styles.infoIcon}>
+              <Mail color="#64748B" size={18} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Email</Text>
+              <Text style={styles.infoValue}>{email}</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.infoRow}>
+            <View style={styles.infoIcon}>
+              <Calendar color="#64748B" size={18} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>Member Since</Text>
+              <Text style={styles.infoValue}>{formatDate(memberSince)}</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.menuContainer}>
           {menuItems.map((item, index) => (
-            <TouchableOpacity 
-              key={index} 
+            <TouchableOpacity
+              key={index}
               style={styles.menuItem}
               onPress={() => navigation.navigate(item.screen)}
             >
@@ -43,9 +139,9 @@ export default function ProfileScreen({ navigation, route }) {
           ))}
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.logoutButton}
-          onPress={() => navigation.navigate('Login')}
+          onPress={handleLogout}
         >
           <LogOut color="#EF4444" size={20} />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -60,13 +156,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#64748B',
+    fontSize: 14,
+  },
   scrollContent: {
     padding: 24,
     paddingBottom: 100,
   },
   profileCard: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   profileImage: {
     width: 100,
@@ -80,59 +186,61 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: '#1E293B',
+    marginBottom: 8,
   },
-  tagRow: {
+  statusBadge: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-  },
-  tag: {
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
-  tagText: {
-    fontSize: 12,
-    fontWeight: '600',
+  statusText: {
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 32,
-    gap: 12,
-  },
-  statBox: {
-    flex: 1,
+  infoCard: {
     backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 24,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  statIcon: {
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 8,
+  },
+  infoIcon: {
     width: 40,
     height: 40,
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  statLabel: {
-    fontSize: 10,
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 12,
     color: '#94A3B8',
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '600',
+    marginBottom: 2,
   },
-  statValue: {
+  infoValue: {
     fontSize: 15,
-    fontWeight: '800',
     color: '#1E293B',
-    marginTop: 4,
+    fontWeight: '600',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 8,
   },
   menuContainer: {
     backgroundColor: 'white',

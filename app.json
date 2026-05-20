@@ -26,6 +26,9 @@
     },
     "web": {
       "favicon": "./assets/ic_launcher_round.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
   }
 }

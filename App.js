@@ -6,6 +6,7 @@ import { Home, Calendar, MessageSquare, User } from 'lucide-react-native';
 
 import LoginScreen from './screens/LoginScreen';
 import RegisterScreen from './screens/RegisterScreen';
+import DoctorPendingScreen from './screens/DoctorPendingScreen';
 import HomeScreen from './screens/HomeScreen';
 import BookingsScreen from './screens/BookingsScreen';
 import MessagesScreen from './screens/MessagesScreen';
@@ -21,7 +22,9 @@ import PrivacySecurityScreen from './screens/PrivacySecurityScreen';
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
-function TabNavigator() {
+function TabNavigator({ route }) {
+  const isDoctor = route.params?.isDoctor || false;
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -36,9 +39,9 @@ function TabNavigator() {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Bookings" component={BookingsScreen} />
-      <Tab.Screen name="Messages" component={MessagesScreen} />
+      {!isDoctor && <Tab.Screen name="Home" component={HomeScreen} />}
+      {!isDoctor && <Tab.Screen name="Bookings" component={BookingsScreen} />}
+      {!isDoctor && <Tab.Screen name="Messages" component={MessagesScreen} />}
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -59,6 +62,7 @@ export default function App() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="DoctorPending" component={DoctorPendingScreen} />
           <Stack.Screen name="Main" component={TabNavigator} />
           <Stack.Screen name="DoctorDetails" component={DoctorDetailsScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />

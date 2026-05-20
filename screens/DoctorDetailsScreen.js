@@ -1,57 +1,107 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Bell, Star, Award, Stethoscope, MapPin, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react-native';
-import { appointmentApi } from '../services/api';
-import { ActivityIndicator } from 'react-native';
+import { ArrowLeft, Award, Calendar, CheckCircle, RefreshCw, Star, Stethoscope } from 'lucide-react-native';
+import { bookAppointment } from '../api/bookings';
+import { DEFAULT_DOCTOR_IMAGE, getDoctorAppointments, normalizeDoctor } from '../api/doctors';
 
-const reviews = [
-  {
-    id: 1,
-    name: 'Sarah Jenkins',
-    rating: 5,
-    comment: 'Dr. Wilson was incredibly thorough and patient. He explained everything in detail and made me feel at ease throughout the whole check-up.',
-    date: '2 weeks ago',
-    image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100',
+const formatDate = (value) => {
+  if (!value) return 'N/A';
+
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return 'N/A';
   }
-];
+};
 
-const dates = [
-  { day: 'Mon', date: '18', full: 'November 18' },
-  { day: 'Tue', date: '19', full: 'November 19' },
-  { day: 'Wed', date: '20', full: 'November 20' },
-  { day: 'Thu', date: '21', full: 'November 21' },
-  { day: 'Fri', date: '22', full: 'November 22' },
-];
-
-const slots = ['09:00 AM', '10:30 AM', '01:15 PM', '03:45 PM'];
+const statusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'available':
+      return '#059669';
+    case 'booked':
+      return '#1552C1';
+    case 'cancelled':
+      return '#EF4444';
+    default:
+      return '#64748B';
+  }
+};
 
 export default function DoctorDetailsScreen({ route, navigation }) {
-  const { doctor, user } = route.params || {};
-  const [selectedDate, setSelectedDate] = useState('18');
-  const [selectedSlot, setSelectedSlot] = useState('10:30 AM');
-  const [loading, setLoading] = useState(false);
+  const doctor = normalizeDoctor(route.params?.doctor || {});
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [bookingId, setBookingId] = useState('');
+  const [error, setError] = useState('');
 
-  const handleBook = async () => {
-    if (!user) return alert('Please login to book an appointment');
-    
-    setLoading(true);
+  const loadAppointments = useCallback(async () => {
+    if (!doctor.uid) {
+      setError('Doctor id is missing.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
-      await appointmentApi.create({
-        patient: user.id,
-        doctor: doctor._id,
-        date: `2024-11-${selectedDate}`,
-        time: selectedSlot,
-        notes: 'Consultation'
-      });
-      alert('Appointment booked successfully!');
-      navigation.navigate('Payment', { doctor, user });
+      setError('');
+      const data = await getDoctorAppointments(doctor.uid);
+      setAppointments(data);
     } catch (err) {
-      alert('Failed to book appointment');
+      setError(err.message || 'Failed to load appointments');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  }, [doctor.uid]);
+
+  useEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadAppointments();
+  }, [loadAppointments]);
+
+  const handleBook = async (appointment) => {
+    if (appointment.status?.toLowerCase() !== 'available') return;
+
+    setBookingId(appointment.id);
+    try {
+      await bookAppointment(appointment.id);
+      Alert.alert('Success', 'Appointment booked successfully.');
+      loadAppointments();
+    } catch (err) {
+      Alert.alert('Booking failed', err.message || 'Could not book this appointment.');
+    } finally {
+      setBookingId('');
     }
   };
+
+  const certifications = Array.isArray(doctor.details?.certification) ? doctor.details.certification : [];
+  const specialities = Array.isArray(doctor.details?.specialities)
+    ? doctor.details.specialities
+    : [doctor.speciality].filter(Boolean);
+  const reviews = Array.isArray(doctor.details?.reviews) ? doctor.details.reviews : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -59,49 +109,29 @@ export default function DoctorDetailsScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton}>
           <ArrowLeft color="#1E293B" size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>MediCare</Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Notifications')}>
-            <Bell color="#1E293B" size={24} />
-          </TouchableOpacity>
-          <View style={styles.profileSmall} />
-        </View>
+        <Text style={styles.headerTitle}>Doctor Profile</Text>
+        <TouchableOpacity style={styles.iconButton} onPress={onRefresh}>
+          <RefreshCw color="#1E293B" size={20} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#1552C1']} />}
+      >
         <View style={styles.mainCard}>
-          <Image source={{ uri: doctor.image }} style={styles.doctorImage} />
-          <Text style={styles.doctorName}>{doctor.name}</Text>
-          <Text style={styles.doctorSub}>Senior {doctor.specialty} • Heart & Vascular Institute</Text>
-          
+          <Image source={{ uri: doctor.image || DEFAULT_DOCTOR_IMAGE }} style={styles.doctorImage} />
+          <Text style={styles.doctorName}>{doctor.fullName}</Text>
+          <Text style={styles.doctorSub}>{doctor.details?.title || doctor.speciality}</Text>
+
           <View style={styles.verifiedBadge}>
             <CheckCircle color="#1552C1" size={14} />
-            <Text style={styles.verifiedText}>Verified Physician</Text>
+            <Text style={styles.verifiedText}>{doctor.status || 'registered'} physician</Text>
           </View>
 
-          <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>15+</Text>
-              <Text style={styles.statLabel}>Years Exp.</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>2k+</Text>
-              <Text style={styles.statLabel}>Patients</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{doctor.rating}</Text>
-              <Text style={styles.statLabel}>Rating</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{doctor.reviews}</Text>
-              <Text style={styles.statLabel}>Reviews</Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionTitle}>BIOGRAPHY</Text>
-          <Text style={styles.bioText}>
-            {doctor.name} is a world-renowned cardiologist with over 15 years of experience in non-invasive cardiac procedures and preventative medicine. He specializes in heart failure management and advanced diagnostic imaging.
-          </Text>
+          <Text style={styles.sectionTitle}>ABOUT</Text>
+          <Text style={styles.bioText}>{doctor.details?.bio || 'No bio available yet.'}</Text>
         </View>
 
         <View style={styles.card}>
@@ -110,105 +140,106 @@ export default function DoctorDetailsScreen({ route, navigation }) {
             <Text style={styles.cardTitle}>Specialties</Text>
           </View>
           <View style={styles.tagContainer}>
-            {['Interventional Cardiology', 'Heart Valve Disease', 'Hypertension', 'Electrophysiology'].map(tag => (
-              <View key={tag} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
+            {specialities.map((item) => (
+              <View key={item} style={styles.tag}>
+                <Text style={styles.tagText}>{item}</Text>
               </View>
             ))}
           </View>
         </View>
 
-        <View style={styles.card}>
-          <View style={styles.sectionHeader}>
-            <Award color="#1552C1" size={20} />
-            <Text style={styles.cardTitle}>Certification</Text>
-          </View>
-          <View style={styles.certRow}>
-            <View style={styles.certIcon}>
-              <Award color="#1552C1" size={24} />
+        {certifications.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Award color="#1552C1" size={20} />
+              <Text style={styles.cardTitle}>Certification</Text>
             </View>
-            <View>
-              <Text style={styles.certName}>Board Certified Cardiologist</Text>
-              <Text style={styles.certSub}>American Board of Internal Medicine</Text>
-            </View>
+            {certifications.map((item, index) => (
+              <Text key={`${item}-${index}`} style={styles.listText}>{item}</Text>
+            ))}
           </View>
-        </View>
+        )}
 
-        <View style={styles.reviewsHeader}>
-          <Text style={styles.sectionTitle}>Patient Reviews</Text>
-          <TouchableOpacity>
-            <Text style={styles.viewAll}>View All</Text>
-          </TouchableOpacity>
-        </View>
-
-        {reviews.map(review => (
-          <View key={review.id} style={styles.reviewCard}>
-            <View style={styles.reviewHeader}>
-              <Image source={{ uri: review.image }} style={styles.reviewerImage} />
-              <View style={{ flex: 1 }}>
-                <View style={styles.reviewerRow}>
-                  <Text style={styles.reviewerName}>{review.name}</Text>
-                  <View style={styles.stars}>
-                    {[1,2,3,4,5].map(s => <Star key={s} size={12} color="#F59E0B" fill="#F59E0B" />)}
-                  </View>
-                </View>
-                <Text style={styles.reviewComment}>{review.comment}</Text>
-                <Text style={styles.reviewDate}>{review.date}</Text>
-              </View>
+        {reviews.length > 0 && (
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Star color="#F59E0B" fill="#F59E0B" size={20} />
+              <Text style={styles.cardTitle}>Reviews</Text>
             </View>
+            {reviews.map((review, index) => (
+              <Text key={`${review}-${index}`} style={styles.reviewText}>{review}</Text>
+            ))}
           </View>
-        ))}
+        )}
 
         <View style={styles.bookingCard}>
           <View style={styles.bookingHeader}>
-            <Text style={styles.bookingTitle}>Book Appointment</Text>
-            <Text style={styles.bookingSub}>Select your preferred date & time</Text>
+            <Text style={styles.bookingTitle}>Available Appointments</Text>
+            <Text style={styles.bookingSub}>Only real slots from this doctor are shown here.</Text>
           </View>
-          
-          <View style={styles.monthRow}>
-            <Text style={styles.monthText}>November 2024</Text>
-            <View style={styles.chevronRow}>
-              <ChevronLeft size={20} color="#94A3B8" />
-              <ChevronRight size={20} color="#94A3B8" />
+
+          {loading ? (
+            <View style={styles.appointmentState}>
+              <ActivityIndicator color="#1552C1" />
+              <Text style={styles.stateText}>Loading appointments...</Text>
             </View>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateScroll}>
-            {dates.map(d => (
-              <TouchableOpacity 
-                key={d.date} 
-                style={[styles.dateCard, selectedDate === d.date && styles.dateCardActive]}
-                onPress={() => setSelectedDate(d.date)}
-              >
-                <Text style={[styles.dayText, selectedDate === d.date && styles.textActive]}>{d.day}</Text>
-                <Text style={[styles.dateText, selectedDate === d.date && styles.textActive]}>{d.date}</Text>
+          ) : error && appointments.length === 0 ? (
+            <View style={styles.appointmentState}>
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={loadAppointments}>
+                <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            </View>
+          ) : appointments.length === 0 ? (
+            <View style={styles.appointmentState}>
+              <Calendar color="#94A3B8" size={32} />
+              <Text style={styles.emptyTitle}>No appointments available</Text>
+              <Text style={styles.stateText}>Check back later for new slots.</Text>
+            </View>
+          ) : (
+            appointments.map((appointment) => {
+              const available = appointment.status?.toLowerCase() === 'available';
+              const activeBooking = bookingId === appointment.id;
 
-          <Text style={styles.availTitle}>Available Slots</Text>
-          <View style={styles.slotsGrid}>
-            {slots.map(slot => (
-              <TouchableOpacity 
-                key={slot} 
-                style={[styles.slotCard, selectedSlot === slot && styles.slotCardActive]}
-                onPress={() => setSelectedSlot(slot)}
-              >
-                <Text style={[styles.slotText, selectedSlot === slot && styles.slotTextActive]}>{slot}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+              return (
+                <View key={appointment.id} style={styles.appointmentCard}>
+                  <View style={styles.appointmentRow}>
+                    <Text style={styles.appointmentLabel}>Date</Text>
+                    <Text style={styles.appointmentValue}>{formatDate(appointment.appointmentDate)}</Text>
+                  </View>
+                  <View style={styles.appointmentRow}>
+                    <Text style={styles.appointmentLabel}>Time</Text>
+                    <Text style={styles.appointmentValue}>{appointment.appointmentTime || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.appointmentRow}>
+                    <Text style={styles.appointmentLabel}>Fee</Text>
+                    <Text style={styles.appointmentValue}>
+                      {appointment.consultationFee ? `$${appointment.consultationFee}` : 'N/A'}
+                    </Text>
+                  </View>
+                  <View style={styles.appointmentRow}>
+                    <Text style={styles.appointmentLabel}>Status</Text>
+                    <Text style={[styles.appointmentValue, { color: statusColor(appointment.status) }]}>
+                      {appointment.status || 'unknown'}
+                    </Text>
+                  </View>
 
-          <View style={styles.feeRow}>
-            <Text style={styles.feeLabel}>Consultation Fee</Text>
-            <Text style={styles.feeValue}>$150.00</Text>
-          </View>
-
-          <TouchableOpacity style={styles.bookButton} onPress={handleBook} disabled={loading}>
-            {loading ? <ActivityIndicator color="white" /> : <Text style={styles.bookButtonText}>Book Now</Text>}
-          </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.bookButton, !available && styles.disabledBookButton]}
+                    onPress={() => handleBook(appointment)}
+                    disabled={!available || activeBooking}
+                  >
+                    {activeBooking ? (
+                      <ActivityIndicator color="white" />
+                    ) : (
+                      <Text style={styles.bookButtonText}>{available ? 'Book Now' : 'Unavailable'}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          )}
         </View>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -232,16 +263,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1552C1',
   },
-  headerRight: {
-    flexDirection: 'row',
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     alignItems: 'center',
-    gap: 12,
-  },
-  profileSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#E2E8F0',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
   },
   scrollContent: {
     padding: 20,
@@ -249,21 +277,24 @@ const styles = StyleSheet.create({
   },
   mainCard: {
     backgroundColor: 'white',
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: 20,
+    padding: 22,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   doctorImage: {
-    width: 140,
-    height: 160,
-    borderRadius: 20,
-    marginBottom: 20,
+    width: 112,
+    height: 112,
+    borderRadius: 24,
+    marginBottom: 18,
   },
   doctorName: {
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: '800',
     color: '#1E293B',
+    textAlign: 'center',
   },
   doctorSub: {
     fontSize: 14,
@@ -284,63 +315,41 @@ const styles = StyleSheet.create({
   verifiedText: {
     fontSize: 12,
     color: '#1552C1',
-    fontWeight: '600',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginTop: 24,
-    gap: 12,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  statLabel: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 4,
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
   sectionTitle: {
+    width: '100%',
     fontSize: 12,
     fontWeight: '800',
     color: '#94A3B8',
     letterSpacing: 1,
-    alignSelf: 'flex-start',
     marginTop: 24,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   bioText: {
+    width: '100%',
     fontSize: 14,
     color: '#64748B',
     lineHeight: 22,
-    textAlign: 'left',
-    width: '100%',
   },
   card: {
     backgroundColor: 'white',
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 20,
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#1E293B',
   },
   tagContainer: {
@@ -352,92 +361,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 14,
   },
   tagText: {
     fontSize: 13,
     color: '#1552C1',
-    fontWeight: '500',
-  },
-  certRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  certIcon: {
-    width: 48,
-    height: 48,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  certName: {
-    fontSize: 15,
     fontWeight: '700',
-    color: '#1E293B',
   },
-  certSub: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  reviewsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  viewAll: {
-    color: '#1552C1',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  reviewCard: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 20,
-  },
-  reviewHeader: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  reviewerImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  reviewerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  listText: {
+    color: '#475569',
+    fontSize: 14,
     marginBottom: 8,
   },
-  reviewerName: {
+  reviewText: {
+    color: '#475569',
     fontSize: 14,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  stars: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-  reviewComment: {
-    fontSize: 13,
-    color: '#64748B',
-    lineHeight: 18,
-  },
-  reviewDate: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 8,
+    lineHeight: 20,
+    marginBottom: 8,
   },
   bookingCard: {
     backgroundColor: 'white',
-    borderRadius: 24,
+    borderRadius: 20,
     marginBottom: 20,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   bookingHeader: {
     backgroundColor: '#1552C1',
@@ -445,7 +393,7 @@ const styles = StyleSheet.create({
   },
   bookingTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: 'white',
   },
   bookingSub: {
@@ -453,136 +401,74 @@ const styles = StyleSheet.create({
     color: '#DBEAFE',
     marginTop: 4,
   },
-  monthRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 20,
-  },
-  monthText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1E293B',
-  },
-  chevronRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  dateScroll: {
-    paddingLeft: 20,
-    marginBottom: 20,
-  },
-  dateCard: {
-    width: 60,
-    height: 70,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
+  appointmentState: {
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    padding: 24,
   },
-  dateCardActive: {
-    backgroundColor: '#1552C1',
-    borderColor: '#1552C1',
-  },
-  dayText: {
-    fontSize: 12,
+  stateText: {
+    marginTop: 10,
     color: '#64748B',
+    textAlign: 'center',
   },
-  dateText: {
-    fontSize: 18,
-    fontWeight: '800',
+  emptyTitle: {
     color: '#1E293B',
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 10,
   },
-  textActive: {
-    color: 'white',
-  },
-  availTitle: {
-    fontSize: 14,
+  errorText: {
+    color: '#EF4444',
+    textAlign: 'center',
     fontWeight: '700',
-    color: '#1E293B',
-    paddingHorizontal: 20,
-    marginBottom: 12,
   },
-  slotsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  slotCard: {
-    width: '48%',
-    height: 48,
-    backgroundColor: 'white',
+  retryButton: {
+    marginTop: 14,
+    backgroundColor: '#1552C1',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  slotCardActive: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#1552C1',
+  retryText: {
+    color: 'white',
+    fontWeight: '800',
   },
-  slotText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748B',
+  appointmentCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 14,
+    margin: 14,
+    marginBottom: 0,
   },
-  slotTextActive: {
-    color: '#1552C1',
-  },
-  feeRow: {
+  appointmentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    gap: 12,
+    marginBottom: 8,
   },
-  feeLabel: {
-    fontSize: 14,
+  appointmentLabel: {
     color: '#64748B',
+    fontSize: 13,
   },
-  feeValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1552C1',
+  appointmentValue: {
+    flex: 1,
+    color: '#1E293B',
+    fontWeight: '700',
+    textAlign: 'right',
   },
   bookButton: {
     backgroundColor: '#1552C1',
-    margin: 20,
-    height: 56,
-    borderRadius: 16,
+    height: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 10,
+  },
+  disabledBookButton: {
+    backgroundColor: '#94A3B8',
   },
   bookButtonText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  mapPlaceholder: {
-    height: 160,
-    borderRadius: 20,
-    backgroundColor: '#F1F5F9',
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  mapImg: {
-    width: '100%',
-    height: '100%',
-  },
-  hospitalName: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  hospitalAddr: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 4,
+    fontWeight: '800',
   },
 });
